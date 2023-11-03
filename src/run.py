@@ -77,7 +77,7 @@ parser.add_argument("--epoch_iter", type=int, default=2000, help="for pretrainin
 parser.add_argument("--pretrained_mdl_path", type=str, default=None, help="the ssl pretrained models path")
 parser.add_argument("--head_lr", type=int, default=1, help="the factor of mlp-head_lr/lr, used in some fine-tuning experiments only")
 parser.add_argument("--noise", help='if augment noise in finetuning', type=ast.literal_eval)
-parser.add_argument("--metrics", type=str, default="mAP", help="the main evaluation metrics in finetuning", choices=["mAP", "acc"])
+parser.add_argument("--metrics", type=str, default="mAP", help="the main evaluation metrics in finetuning", choices=["mAP", "acc", "f1_macro"])
 parser.add_argument("--lrscheduler_start", default=10, type=int, help="when to start decay in finetuning")
 parser.add_argument("--lrscheduler_step", default=5, type=int, help="the number of step to decrease the learning rate in finetuning")
 parser.add_argument("--lrscheduler_decay", default=0.5, type=float, help="the learning rate decay ratio in finetuning")
@@ -95,10 +95,10 @@ args = parser.parse_args()
 # noise = {'librispeech': False, 'howto100m': False, 'audioset': False, 'esc50': False, 'speechcommands':True}
 
 audio_conf = {'num_mel_bins': args.num_mel_bins, 'target_length': args.target_length, 'freqm': args.freqm, 'timem': args.timem, 'mixup': args.mixup, 'dataset': args.dataset,
-              'mode':'train', 'mean':args.dataset_mean, 'std':args.dataset_std, 'noise':args.noise}
+              'mode':'train', 'mean':args.dataset_mean, 'std':args.dataset_std, 'noise':args.noise, 'skip_norm': True}
 
 val_audio_conf = {'num_mel_bins': args.num_mel_bins, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
-                  'mode': 'evaluation', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False}
+                  'mode': 'evaluation', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False, 'skip_norm': True}
 
 # if use balanced sampling, note - self-supervised pretraining should not use balance sampling as it implicitly leverages the label information.
 if args.bal == 'bal':

@@ -23,8 +23,11 @@ def calculate_stats(output, target):
     stats = []
 
     # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
+    # print(f"traget: {target}, out: {output}")
     acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
-
+    bal_acc = metrics.balanced_accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
+    f1_macro = metrics.f1_score(np.argmax(target, 1), np.argmax(output, 1), average='macro')
+    # print(metrics.classification_report(np.argmax(target, 1), np.argmax(output, 1), target_names=['angry', 'neutral', 'positive', 'sad', 'other'], digits=2))
     # Class-wise statistics
     for k in range(classes_num):
 
@@ -50,7 +53,9 @@ def calculate_stats(output, target):
                 'fnr': 1. - tpr[0::save_every_steps],
                 'auc': auc,
                 # note acc is not class-wise, this is just to keep consistent with other metrics
-                'acc': acc
+                'acc': acc,
+                'bal_acc': bal_acc,
+                'f1_macro': f1_macro
                 }
         stats.append(dict)
 

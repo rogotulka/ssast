@@ -16,8 +16,19 @@ from torch import nn
 import numpy as np
 import pickle
 from torch.cuda.amp import autocast,GradScaler
+from tensorboardX import SummaryWriter
+
 
 def train(audio_model, train_loader, test_loader, args):
+    # TODO: fix log dir
+    log_dir = os.path.join(
+        args.exp_dir,
+        datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    )
+    
+    tbwriter = SummaryWriter(
+        log_dir=log_dir
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print('running on ' + str(device))
     torch.set_grad_enabled(True)
@@ -28,10 +39,14 @@ def train(audio_model, train_loader, test_loader, args):
     data_time = AverageMeter()
     per_sample_data_time = AverageMeter()
     loss_meter = AverageMeter()
+    train_acc = AverageMeter()
+    train_f1 = AverageMeter()
+    train_bal_acc = AverageMeter()
+
     per_sample_dnn_time = AverageMeter()
     progress = []
     # best_cum_mAP is checkpoint ensemble from the first epoch to the best epoch
-    best_epoch, best_cum_epoch, best_mAP, best_acc, best_cum_mAP = 0, 0, -np.inf, -np.inf, -np.inf
+    best_epoch, best_cum_epoch, best_mAP, best_acc, best_cum_mAP, best_f1 = 0, 0, -np.inf, -np.inf, -np.inf, -np.inf
     global_step, epoch = 0, 0
     start_time = time.time()
     exp_dir = args.exp_dir
@@ -177,10 +192,26 @@ def train(audio_model, train_loader, test_loader, args):
                     np.savetxt(exp_dir + '/labels.csv', labels.cpu().detach().numpy(), delimiter=',')
                     print('audio output and label saved for debugging.')
                     #return
-
+            target = labels.cpu().detach()
+            output = audio_output.cpu().detach()
+            acc_tr = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
+            bal_acc_tr = metrics.balanced_accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
+            f1_macro_tr = metrics.f1_score(np.argmax(target, 1), np.argmax(output, 1), average='macro')
+            train_acc.update(acc_tr)
+            train_bal_acc.update(bal_acc_tr)
+            train_f1.update(f1_macro_tr)
             end_time = time.time()
             global_step += 1
 
+        tbwriter.add_scalar('train_loss', loss_meter.avg, epoch)
+        tbwriter.add_scalar('train_accuracy', train_acc.avg, epoch)
+        tbwriter.add_scalar('train_balanced_accuracy', train_bal_acc.avg, epoch)
+        tbwriter.add_scalar('train_f1_macro', train_f1.avg, epoch)
+        tbwriter.add_scalar('lr', optimizer.param_groups[0]['lr'], epoch)
+        tbwriter.flush()
+        train_acc.reset()
+        train_bal_acc.reset()
+        train_f1.reset()
         print('start validation')
         stats, valid_loss = validate(audio_model, test_loader, args, epoch)
 
@@ -193,6 +224,8 @@ def train(audio_model, train_loader, test_loader, args):
         mAP = np.mean([stat['AP'] for stat in stats])
         mAUC = np.mean([stat['auc'] for stat in stats])
         acc = stats[0]['acc']
+        bal_acc = stats[0]['bal_acc']
+        f1_macro = stats[0]['f1_macro']
 
         middle_ps = [stat['precisions'][int(len(stat['precisions'])/2)] for stat in stats]
         middle_rs = [stat['recalls'][int(len(stat['recalls'])/2)] for stat in stats]
@@ -203,12 +236,21 @@ def train(audio_model, train_loader, test_loader, args):
             print("mAP: {:.6f}".format(mAP))
         else:
             print("acc: {:.6f}".format(acc))
+            print("bal_acc: {:.6f}".format(bal_acc))
+            print("f1_macro: {:.6f}".format(f1_macro))
+
         print("AUC: {:.6f}".format(mAUC))
         print("Avg Precision: {:.6f}".format(average_precision))
         print("Avg Recall: {:.6f}".format(average_recall))
         print("d_prime: {:.6f}".format(d_prime(mAUC)))
         print("train_loss: {:.6f}".format(loss_meter.avg))
         print("valid_loss: {:.6f}".format(valid_loss))
+
+        tbwriter.add_scalar('val_loss', valid_loss, epoch)
+        tbwriter.add_scalar('val_accuracy', acc, epoch)
+        tbwriter.add_scalar('val_balanced_accuracy', bal_acc, epoch)
+        tbwriter.add_scalar('val_f1_macro', f1_macro, epoch)
+        tbwriter.flush()
 
         if main_metrics == 'mAP':
             result[epoch-1, :] = [mAP, mAUC, average_precision, average_recall, d_prime(mAUC), loss_meter.avg, valid_loss, cum_mAP, cum_mAUC, optimizer.param_groups[0]['lr']]
@@ -227,6 +269,11 @@ def train(audio_model, train_loader, test_loader, args):
             if main_metrics == 'acc':
                 best_epoch = epoch
 
+        if f1_macro > best_f1:
+            best_f1 = f1_macro
+            if main_metrics == 'f1_macro':
+                best_epoch = epoch
+
         if cum_mAP > best_cum_mAP:
             best_cum_epoch = epoch
             best_cum_mAP = cum_mAP
@@ -242,7 +289,10 @@ def train(audio_model, train_loader, test_loader, args):
 
         if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
             print('adaptive learning rate scheduler step')
-            scheduler.step(mAP)
+            if main_metrics == 'f1_macro':
+                scheduler.step(f1_macro)
+            else:
+                scheduler.step(mAP)
         else:
             print('normal learning rate scheduler step')
             scheduler.step()
