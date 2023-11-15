@@ -20,6 +20,7 @@ from models import ASTModel
 import numpy as np
 from traintest import train, validate
 from traintest_mask import trainmask
+from datetime import datetime
 
 print("I am process %s, running on %s: starting (%s)" % (os.getpid(), os.uname()[1], time.asctime()))
 
@@ -139,6 +140,8 @@ else:
 
 if not isinstance(audio_model, torch.nn.DataParallel):
     audio_model = torch.nn.DataParallel(audio_model)
+
+args.exp_dir = f"{args.exp_dir}_{datetime.today().strftime('%Y-%m-%d_%H-%M-%S')}"
 
 print("\nCreating experiment directory: %s" % args.exp_dir)
 if os.path.exists("%s/models" % args.exp_dir) == False:
