@@ -12,22 +12,22 @@
 
 set -x
 # comment this line if not running on sls cluster
-. /data/sls/scratch/share-201907/slstoolchainrc
-source /data/sls/scratch/yuangong/sslast2/sslast2/bin/activate
+# . /data/sls/scratch/share-201907/slstoolchainrc
+source /venv/bin/activate
 export TORCH_HOME=../../pretrained_models
 mkdir exp
 mkdir slurm_log
 
 task=pretrain_joint
-mask_patch=400
+mask_patch=20
 
 # audioset and librispeech
 dataset=asli
-tr_data=/data/sls/scratch/yuangong/sslast2/src/prep_data/audioset_librispeech.json
-te_data=/data/sls/scratch/yuangong/audioset/datafiles/eval_data.json
+tr_data=./data/datafiles/speechcommand_train_data.json
+te_data=./data/datafiles/speechcommand_eval_data.json
 dataset_mean=-4.2677393
 dataset_std=4.5689974
-target_length=1024
+target_length=128
 num_mel_bins=128
 
 model_size=tiny
@@ -51,9 +51,9 @@ mixup=0
 
 exp_dir=./exp/mask01-${model_size}-f${fshape}-t${tshape}-b$batch_size-lr${lr}-m${mask_patch}-${task}-${dataset}
 
-CUDA_CACHE_DISABLE=1 python -W ignore ../run.py --dataset ${dataset} \
+CUDA_CACHE_DISABLE=0 python -W ignore src/run.py --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
---label-csv ./data/class_labels_indices.csv \
+--label-csv ./data/speechcommands_class_labels_indices.csv \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model False \
 --freqm $freqm --timem $timem --mixup ${mixup} --bal ${bal} \
 --tstride $tstride --fstride $fstride --fshape ${fshape} --tshape ${tshape} \
