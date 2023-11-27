@@ -95,6 +95,8 @@ class ASTModel(nn.Module):
             self.original_embedding_dim = self.v.pos_embed.shape[2]
 
             # SSL Pretraining Code
+            self.mpc_softmax = nn.Softmax(dim=0)
+            self.mpc_lsoftmax = nn.LogSoftmax(dim=0)
             self.softmax = nn.Softmax(dim=-1)
             self.lsoftmax = nn.LogSoftmax(dim=-1)
             self.fshape, self.tshape = fshape, tshape
@@ -348,8 +350,8 @@ class ASTModel(nn.Module):
             # negative samples are from the same batch
             # 8/12/2022: has a difference with equation (1) in the ssast paper but (likely) performance-wise similar, see https://github.com/YuanGongND/ssast/issues/13
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))  # e.g. size 100*100
-            correct += torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, mask_patch, device=x.device)))  # correct is a tensor
-            nce += torch.sum(torch.diag(self.lsoftmax(total)))  # nce is a tensor
+            correct += torch.sum(torch.eq(torch.argmax(self.mpc_softmax(total), dim=0), torch.arange(0, mask_patch, device=x.device)))  # correct is a tensor
+            nce += torch.sum(torch.diag(self.mpc_lsoftmax(total)))  # nce is a tensor
         acc = 1. * correct / (B * mask_patch)
         nce = nce / (-1. * B * mask_patch)
 
