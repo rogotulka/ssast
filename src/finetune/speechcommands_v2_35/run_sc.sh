@@ -1,4 +1,4 @@
-#!/bin/bash
+!/bin/bash
 ##SBATCH -p sm
 ##SBATCH -x sls-sm-1,sls-2080-[1,3],sls-1080-[2,3],sls-sm-5
 #SBATCH -p gpu
@@ -12,8 +12,8 @@
 
 set -x
 # comment this line if not running on sls cluster
-. /data/sls/scratch/share-201907/slstoolchainrc
-source ../../../venvssast/bin/activate
+#. /data/sls/scratch/share-201907/slstoolchainrc
+#source ../../../venvssast/bin/activate
 export TORCH_HOME=../../pretrained_models
 mkdir -p ./exp
 
@@ -31,8 +31,9 @@ else
     wget https://www.dropbox.com/s/nx6nl4d4bl71sm8/SSAST-Base-Frame-400.pth?dl=1 -O SSAST-Base-Frame-400.pth
 fi
 
-pretrain_exp=
-pretrain_model=SSAST-Base-Frame-400
+#pretrain_exp='/home/korovski_y_nfs/ss_ast/ssast/exp/mask01-tiny-f128-t2-b120-lr5e-4-m10-pretrain_joint-speechcommands/models/best_audio_model.pth'
+#pretrain_model=SSAST-Tiny-Frame-10
+pretrain_exp='SSAST-Base-Frame-400'
 
 dataset=speechcommands
 dataset_mean=-6.845978
@@ -53,16 +54,17 @@ batch_size=128
 fshape=128
 tshape=2
 fstride=128
-tstride=1
+tstride=2
 
 task=ft_avgtok
 model_size=base
 head_lr=1
 
-pretrain_path=./${pretrain_exp}/${pretrain_model}.pth
-exp_dir=./exp/test01-${dataset}-f$fstride-t$tstride-b$batch_size-lr${lr}-${task}-${model_size}-$pretrain_exp-${pretrain_model}-${head_lr}x-noise${noise}
+#pretrain_path=${pretrain_exp}
+pretrain_path=./${pretrain_exp}.pth
+exp_dir=./exp/test01-${dataset}-f$fstride-t$tstride-b$batch_size-lr${lr}-${task}-${model_size}-${head_lr}x-noise${noise}
 
-CUDA_CACHE_DISABLE=1 python -W ignore ../../run.py --dataset ${dataset} \
+CUDA_CACHE_DISABLE=1 python -W ignore ./src/run.py --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${val_data} --data-eval ${eval_data} --exp-dir $exp_dir \
 --label-csv ./data/speechcommands_class_labels_indices.csv --n_class 35 \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model False \
