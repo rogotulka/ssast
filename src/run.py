@@ -137,6 +137,9 @@ else:
                        input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=False,
                        load_pretrained_mdl_path=args.pretrained_mdl_path)
 
+#audio_model.qconfig = torch.ao.quantization.get_default_qat_qconfig('x86')
+#audio_model = torch.ao.quantization.prepare_qat(audio_model.train())
+
 if not isinstance(audio_model, torch.nn.DataParallel):
     audio_model = torch.nn.DataParallel(audio_model)
 

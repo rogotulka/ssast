@@ -26,6 +26,7 @@ class PatchEmbed(nn.Module):
     """
     def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
         super().__init__()
+        self.quant = torch.ao.quantization.QuantStub()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)
         num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
@@ -34,9 +35,12 @@ class PatchEmbed(nn.Module):
         self.num_patches = num_patches
 
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.dequant = torch.ao.quantization.DeQuantStub()
 
     def forward(self, x):
+        #x = self.quant(x)
         x = self.proj(x).flatten(2).transpose(1, 2)
+        #x = self.dequant(x)
         return x
 
 def get_sinusoid_encoding(n_position, d_hid):
@@ -57,13 +61,18 @@ class ASTModel(nn.Module):
                  input_fdim=128, input_tdim=1024, model_size='base',
                  pretrain_stage=True, load_pretrained_mdl_path=None):
 
+
         super(ASTModel, self).__init__()
         assert timm.__version__ == '0.4.5', 'Please use timm == 0.4.5, the code might not be compatible with newer versions.'
 
         # override timm input shape restriction
         timm.models.vision_transformer.PatchEmbed = PatchEmbed
 
-        # pretrain the AST models
+        # this is a trick to make state_dict to track pretraining input_fdim and input_tdim and save them by using torch.save
+        self.p_input_fdim, self.p_input_tdim = nn.Parameter(torch.tensor(input_fdim), requires_grad=False), nn.Parameter(torch.tensor(input_tdim), requires_grad=False)
+
+
+    # pretrain the AST models
         if pretrain_stage == True:
             if load_pretrained_mdl_path != None:
                 raise ValueError('Setting load_pretrained_mdl_path at pretraining stage is useless, pretraining is always from scratch, please change it to None.')
@@ -95,13 +104,13 @@ class ASTModel(nn.Module):
             self.original_embedding_dim = self.v.pos_embed.shape[2]
 
             # SSL Pretraining Code
+            self.mpc_softmax = nn.Softmax(dim=0)
+            self.mpc_lsoftmax = nn.LogSoftmax(dim=0)
             self.softmax = nn.Softmax(dim=-1)
             self.lsoftmax = nn.LogSoftmax(dim=-1)
             self.fshape, self.tshape = fshape, tshape
             self.fstride, self.tstride = fstride, tstride
             self.input_fdim, self.input_tdim = input_fdim, input_tdim
-            # this is a trick to make state_dict to track pretraining input_fdim and input_tdim and save them by using torch.save
-            self.p_input_fdim, self.p_input_tdim = nn.Parameter(torch.tensor(input_fdim), requires_grad=False), nn.Parameter(torch.tensor(input_tdim), requires_grad=False)
 
             # masked patch classification (discriminative objective) layer
             # we use two layers for pretext task, but using a single layer has similar performance.
@@ -153,7 +162,8 @@ class ASTModel(nn.Module):
             # here, input_fdim and input_tdim should be that used in pretraining, not that in the fine-tuning.
             # we need to know input_fdim and input_tdim to do positional embedding cut/interpolation.
             # generally it should be better to use same input_fdim during pretraining and finetuning, but input_tdim can be safely different
-            audio_model = ASTModel(fstride=p_fshape, tstride=p_tshape, fshape=p_fshape, tshape=p_tshape,
+            print('Initializing final model with label dim: ', label_dim)
+            audio_model = ASTModel(label_dim=label_dim, fstride=p_fshape, tstride=p_tshape, fshape=p_fshape, tshape=p_tshape,
                                    input_fdim=p_input_fdim, input_tdim=p_input_tdim, pretrain_stage=True, model_size=model_size)
             audio_model = torch.nn.DataParallel(audio_model)
             audio_model.load_state_dict(sd, strict=False)
@@ -203,6 +213,9 @@ class ASTModel(nn.Module):
             new_pos_embed = new_pos_embed.reshape(1, self.original_embedding_dim, num_patches).transpose(1, 2)
             self.v.pos_embed = nn.Parameter(torch.cat([self.v.pos_embed[:, :self.cls_token_num, :].detach(), new_pos_embed], dim=1))
 
+        self.quant = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+
     # get the shape of intermediate representation.
     def get_shape(self, fstride, tstride, input_fdim, input_tdim, fshape, tshape):
         test_input = torch.randn(1, 1, input_fdim, input_tdim)
@@ -243,6 +256,7 @@ class ASTModel(nn.Module):
 
     def finetuningavgtok(self, x):
         B = x.shape[0]
+        #x = self.quant(x)
         x = self.v.patch_embed(x)
         if self.cls_token_num == 2:
             cls_tokens = self.v.cls_token.expand(B, -1, -1)
@@ -261,10 +275,12 @@ class ASTModel(nn.Module):
         # average output of all tokens except cls token(s)
         x = torch.mean(x[:, self.cls_token_num:, :], dim=1)
         x = self.mlp_head(x)
+        #x = self.dequant(x)
         return x
 
     def finetuningcls(self, x):
         B = x.shape[0]
+        #x = self.quant(x)
         x = self.v.patch_embed(x)
         if self.cls_token_num == 2:
             cls_tokens = self.v.cls_token.expand(B, -1, -1)
@@ -286,10 +302,12 @@ class ASTModel(nn.Module):
         else:
             x = x[:, 0]
         x = self.mlp_head(x)
+        #x = self.dequant(x)
         return x
 
     # masked patch pretraining with discriminative objective
     def mpc(self, x, mask_patch, cluster, show_mask=False):
+        #x = self.quant(x)
         input = self.unfold(x).transpose(1, 2)
         B = x.shape[0]
         # x in shape (batch_size, sequence_len, embedding dim)
@@ -332,6 +350,7 @@ class ASTModel(nn.Module):
         for blk in self.v.blocks:
             x = blk(x)
         x = self.v.norm(x)
+        #x = self.dequant(x)
 
         # prediction of the masked patch
         pred = torch.empty((B, mask_patch, 256), device=x.device).float()  # e.g. size 12*100*768
@@ -348,8 +367,8 @@ class ASTModel(nn.Module):
             # negative samples are from the same batch
             # 8/12/2022: has a difference with equation (1) in the ssast paper but (likely) performance-wise similar, see https://github.com/YuanGongND/ssast/issues/13
             total = torch.mm(encode_samples[i], torch.transpose(pred[i], 0, 1))  # e.g. size 100*100
-            correct += torch.sum(torch.eq(torch.argmax(self.softmax(total), dim=0), torch.arange(0, mask_patch, device=x.device)))  # correct is a tensor
-            nce += torch.sum(torch.diag(self.lsoftmax(total)))  # nce is a tensor
+            correct += torch.sum(torch.eq(torch.argmax(self.mpc_softmax(total), dim=0), torch.arange(0, mask_patch, device=x.device)))  # correct is a tensor
+            nce += torch.sum(torch.diag(self.mpc_lsoftmax(total)))  # nce is a tensor
         acc = 1. * correct / (B * mask_patch)
         nce = nce / (-1. * B * mask_patch)
 
@@ -387,6 +406,7 @@ class ASTModel(nn.Module):
     def mpg(self, input, mask_patch, cluster):
         B = input.shape[0]
         x = self.v.patch_embed(input)
+        #x = self.quant(x)
         input = self.unfold(input).transpose(1, 2)
 
         # size 12(batch_size) * 100(#mask_patch), index of masked patches
@@ -417,6 +437,7 @@ class ASTModel(nn.Module):
         for blk in self.v.blocks:
             x = blk(x)
         x = self.v.norm(x)
+        #x = self.dequant(x)
 
         pred = torch.empty((B, mask_patch, self.fshape * self.tshape), device=x.device).float()  # e.g. size 12*100*256
         target = torch.empty((B, mask_patch, self.fshape * self.tshape), device=x.device).float() # e.g. size 12*100*256
