@@ -21,9 +21,13 @@ def calculate_stats(output, target):
 
     classes_num = target.shape[-1]
     stats = []
-
+    print(classes_num)
+    print(target.shape, output.shape)
     # Accuracy, only used for single-label classification such as esc-50, not for multiple label one such as AudioSet
     acc = metrics.accuracy_score(np.argmax(target, 1), np.argmax(output, 1))
+    # f1
+    print('F!', target)
+    f1 = metrics.f1_score(np.argmax(target, 1), np.argmax(output, 1), average='weighted')
 
     # Class-wise statistics
     for k in range(classes_num):
@@ -38,6 +42,8 @@ def calculate_stats(output, target):
         # Precisions, recalls
         (precisions, recalls, thresholds) = metrics.precision_recall_curve(
             target[:, k], output[:, k])
+        
+        
 
         # FPR, TPR
         (fpr, tpr, thresholds) = metrics.roc_curve(target[:, k], output[:, k])
@@ -49,6 +55,7 @@ def calculate_stats(output, target):
                 'fpr': fpr[0::save_every_steps],
                 'fnr': 1. - tpr[0::save_every_steps],
                 'auc': auc,
+                'f1': f1,
                 # note acc is not class-wise, this is just to keep consistent with other metrics
                 'acc': acc
                 }

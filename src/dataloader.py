@@ -96,18 +96,32 @@ class AudioDataset(Dataset):
         # mixup
         if filename2 == None:
             waveform, sr = torchaudio.load(filename)
+            # print(waveform.shape)
+            if waveform.shape[0] == 2:
+                waveform = waveform[[0]]
+                if waveform.shape[1] < 300:
+                    print('I here', filename)
+                    temp_wav = torch.zeros(1, 16000)
+                    temp_wav[0, 0:waveform.shape[1]] = waveform
+                    waveform = temp_wav
+                # print(waveform.shape)
             waveform = waveform - waveform.mean()
         # mixup
         else:
             waveform1, sr = torchaudio.load(filename)
+            if waveform1.shape[0] == 2:
+                waveform1 = waveform1[[0]]
+                # print(waveform1.shape)
             waveform2, _ = torchaudio.load(filename2)
-
+            if waveform2.shape[0] == 2:
+                waveform2 = waveform2[[0]]
             waveform1 = waveform1 - waveform1.mean()
             waveform2 = waveform2 - waveform2.mean()
 
             if waveform1.shape[1] != waveform2.shape[1]:
                 if waveform1.shape[1] > waveform2.shape[1]:
                     # padding
+                    
                     temp_wav = torch.zeros(1, waveform1.shape[1])
                     temp_wav[0, 0:waveform2.shape[1]] = waveform2
                     waveform2 = temp_wav
@@ -122,7 +136,7 @@ class AudioDataset(Dataset):
 
             mix_waveform = mix_lambda * waveform1 + (1 - mix_lambda) * waveform2
             waveform = mix_waveform - mix_waveform.mean()
-
+        # print('shape', waveform.shape)
         fbank = torchaudio.compliance.kaldi.fbank(waveform, htk_compat=True, sample_frequency=sr, use_energy=False,
                                                   window_type='hanning', num_mel_bins=self.melbins, dither=0.0, frame_shift=10)
 
@@ -207,6 +221,7 @@ class AudioDataset(Dataset):
 
         # the output fbank shape is [time_frame_num, frequency_bins], e.g., [1024, 128]
         return fbank, label_indices
+        # , datum['wav']
 
     def __len__(self):
         return len(self.data)

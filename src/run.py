@@ -101,9 +101,11 @@ val_audio_conf = {'num_mel_bins': args.num_mel_bins, 'target_length': args.targe
                   'mode': 'evaluation', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False}
 
 # if use balanced sampling, note - self-supervised pretraining should not use balance sampling as it implicitly leverages the label information.
+print(args.bal)
 if args.bal == 'bal':
     print('balanced sampler is being used')
     samples_weight = np.loadtxt(args.data_train[:-5]+'_weight.csv', delimiter=',')
+    print(samples_weight)
     sampler = WeightedRandomSampler(samples_weight, len(samples_weight), replacement=True)
 
     train_loader = torch.utils.data.DataLoader(
@@ -171,6 +173,7 @@ if args.data_eval != None:
     print('---------------evaluate on the validation set---------------')
     print("Accuracy: {:.6f}".format(val_acc))
     print("AUC: {:.6f}".format(val_mAUC))
+    print("F1: {:.6f}".format(stats[0]['f1']))
 
     # test the models on the evaluation set
     eval_loader = torch.utils.data.DataLoader(
@@ -182,5 +185,6 @@ if args.data_eval != None:
     print('---------------evaluate on the test set---------------')
     print("Accuracy: {:.6f}".format(eval_acc))
     print("AUC: {:.6f}".format(eval_mAUC))
+    print("F1: {:.6f}".format(stats[0]['f1']))
     np.savetxt(args.exp_dir + '/eval_result.csv', [val_acc, val_mAUC, eval_acc, eval_mAUC])
 

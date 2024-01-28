@@ -123,7 +123,6 @@ def train(audio_model, train_loader, test_loader, args):
         print("current #epochs=%s, #steps=%s" % (epoch, global_step))
 
         for i, (audio_input, labels) in enumerate(train_loader):
-
             B = audio_input.size(0)
             audio_input = audio_input.to(device, non_blocking=True)
             labels = labels.to(device, non_blocking=True)
@@ -158,6 +157,7 @@ def train(audio_model, train_loader, test_loader, args):
             print_step = global_step % args.n_print_steps == 0
             early_print_step = epoch == 0 and global_step % (args.n_print_steps/10) == 0
             print_step = print_step or early_print_step
+            
 
             if print_step and global_step != 0:
                 print('Epoch: [{0}][{1}/{2}]\t'
@@ -193,6 +193,8 @@ def train(audio_model, train_loader, test_loader, args):
         mAP = np.mean([stat['AP'] for stat in stats])
         mAUC = np.mean([stat['auc'] for stat in stats])
         acc = stats[0]['acc']
+        average_f1 = stats[0]['f1']
+        
 
         middle_ps = [stat['precisions'][int(len(stat['precisions'])/2)] for stat in stats]
         middle_rs = [stat['recalls'][int(len(stat['recalls'])/2)] for stat in stats]
@@ -206,6 +208,7 @@ def train(audio_model, train_loader, test_loader, args):
         print("AUC: {:.6f}".format(mAUC))
         print("Avg Precision: {:.6f}".format(average_precision))
         print("Avg Recall: {:.6f}".format(average_recall))
+        print("Avg F1: {:.6f}".format(average_f1))
         print("d_prime: {:.6f}".format(d_prime(mAUC)))
         print("train_loss: {:.6f}".format(loss_meter.avg))
         print("valid_loss: {:.6f}".format(valid_loss))
@@ -285,6 +288,7 @@ def train(audio_model, train_loader, test_loader, args):
         print("AUC: {:.6f}".format(mAUC))
         print("Avg Precision: {:.6f}".format(average_precision))
         print("Avg Recall: {:.6f}".format(average_recall))
+        # print("Avg F1: {:.6f}".format(average_f1))
         print("d_prime: {:.6f}".format(d_prime(mAUC)))
         print("train_loss: {:.6f}".format(loss_meter.avg))
         print("valid_loss: {:.6f}".format(valid_loss))

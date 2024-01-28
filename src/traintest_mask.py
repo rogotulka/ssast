@@ -202,17 +202,17 @@ def validatemask(audio_model, val_loader, args, epoch):
             cluster = (args.num_mel_bins != args.fshape)
             # always use mask_patch=400 for evaluation, even the training mask patch number differs.
             if args.task == 'pretrain_mpc':
-                acc, nce = audio_model(audio_input, args.task, mask_patch=400, cluster=cluster)
+                acc, nce = audio_model(audio_input, args.task, mask_patch = args.mask_patch, cluster=cluster)
                 A_acc.append(torch.mean(acc).cpu())
                 A_nce.append(torch.mean(nce).cpu())
             elif args.task == 'pretrain_mpg':
-                mse = audio_model(audio_input, args.task, mask_patch=400, cluster=cluster)
+                mse = audio_model(audio_input, args.task, mask_patch = args.mask_patch, cluster=cluster)
                 # this is dirty code to track mse loss, A_acc and A_nce now track mse, not the name suggests
                 A_acc.append(torch.mean(mse).cpu())
                 A_nce.append(torch.mean(mse).cpu())
             elif args.task == 'pretrain_joint':
-                acc, _ = audio_model(audio_input, 'pretrain_mpc', mask_patch=400, cluster=cluster)
-                mse = audio_model(audio_input, 'pretrain_mpg', mask_patch=400, cluster=cluster)
+                acc, _ = audio_model(audio_input, 'pretrain_mpc', mask_patch = args.mask_patch, cluster=cluster)
+                mse = audio_model(audio_input, 'pretrain_mpg', mask_patch = args.mask_patch, cluster=cluster)
 
                 A_acc.append(torch.mean(acc).cpu())
                 # A_nce then tracks the mse loss

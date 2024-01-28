@@ -12,32 +12,20 @@ import torch
 import sys
 sys.path.append("/data/sls/scratch/yuangong/aed-trans/src/models/")
 sys.path.append("/data/sls/scratch/yuangong/aed-trans/src/")
-from timm.models.layers import trunc_normal_
-import timm
+# from timm.models.layers import trunc_normal_
+# import timm
 import numpy as np
 from timm.models.layers import to_2tuple
 from random import randrange
 from matplotlib import pyplot as plt
 import random
+from .transformer import _create_vision_transformer
+import math
+import warnings
+
 
 # override the timm package to relax the input shape constraint.
-class PatchEmbed(nn.Module):
-    """ Image to Patch Embedding
-    """
-    def __init__(self, img_size=224, patch_size=16, in_chans=3, embed_dim=768):
-        super().__init__()
-        img_size = to_2tuple(img_size)
-        patch_size = to_2tuple(patch_size)
-        num_patches = (img_size[1] // patch_size[1]) * (img_size[0] // patch_size[0])
-        self.img_size = img_size
-        self.patch_size = patch_size
-        self.num_patches = num_patches
 
-        self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
-
-    def forward(self, x):
-        x = self.proj(x).flatten(2).transpose(1, 2)
-        return x
 
 def get_sinusoid_encoding(n_position, d_hid):
     ''' Sinusoid position encoding table '''
@@ -58,10 +46,10 @@ class ASTModel(nn.Module):
                  pretrain_stage=True, load_pretrained_mdl_path=None):
 
         super(ASTModel, self).__init__()
-        assert timm.__version__ == '0.4.5', 'Please use timm == 0.4.5, the code might not be compatible with newer versions.'
+        # assert timm.__version__ == '0.4.5', 'Please use timm == 0.4.5, the code might not be compatible with newer versions.'
 
         # override timm input shape restriction
-        timm.models.vision_transformer.PatchEmbed = PatchEmbed
+        # timm.models.vision_transformer.PatchEmbed = PatchEmbed
 
         # pretrain the AST models
         if pretrain_stage == True:
@@ -72,19 +60,33 @@ class ASTModel(nn.Module):
 
             # if AudioSet pretraining is not used (but ImageNet pretraining may still apply)
             if model_size == 'tiny':
-                self.v = timm.create_model('vit_deit_tiny_distilled_patch16_224', pretrained=False)
+                #  **kwargs
+                model_kwargs = dict(patch_size=16, embed_dim=192, depth=12, num_heads=3,)
+                self.v = _create_vision_transformer(
+                    'vit_deit_tiny_distilled_patch16_224', pretrained=False,  distilled=True, **model_kwargs)
+
+                # self.v = timm.create_model('vit_deit_tiny_distilled_patch16_224', pretrained=False)
                 self.heads, self.depth = 3, 12
                 self.cls_token_num = 2
             elif model_size == 'small':
-                self.v = timm.create_model('vit_deit_small_distilled_patch16_224', pretrained=False)
+                model_kwargs = dict(patch_size=16, embed_dim=192, depth=12, num_heads=6,)
+                self.v = _create_vision_transformer(
+                    'vit_deit_tiny_distilled_patch16_224', pretrained=False,  distilled=True, **model_kwargs)
+                # self.v = timm.create_model('vit_deit_small_distilled_patch16_224', pretrained=False)
                 self.heads, self.depth = 6, 12
                 self.cls_token_num = 2
             elif model_size == 'base':
-                self.v = timm.create_model('vit_deit_base_distilled_patch16_384', pretrained=False)
+                model_kwargs = dict(patch_size=16, embed_dim=192, depth=12, num_heads=12,)
+                # self.v = timm.create_model('vit_deit_base_distilled_patch16_384', pretrained=False)
+                self.v = _create_vision_transformer(
+                    'vit_deit_base_distilled_patch16_384', pretrained=False,  distilled=True, **model_kwargs)
                 self.heads, self.depth = 12, 12
                 self.cls_token_num = 2
             elif model_size == 'base_nokd':
-                self.v = timm.create_model('vit_deit_base_patch16_384', pretrained=False)
+                model_kwargs = dict(patch_size=16, embed_dim=192, depth=12, num_heads=12,)
+                self.v = _create_vision_transformer(
+                    'vit_deit_base_distilled_patch16_384', pretrained=False,  distilled=False, **model_kwargs)
+                # self.v = timm.create_model('vit_deit_base_patch16_384', pretrained=False)
                 self.heads, self.depth = 12, 12
                 self.cls_token_num = 1
             else:
@@ -145,8 +147,14 @@ class ASTModel(nn.Module):
             sd = torch.load(load_pretrained_mdl_path, map_location=device)
             # get the fshape and tshape, input_fdim and input_tdim in the pretraining stage
             try:
+                # print(sd['module.v.patch_embed.proj.weight'])
+                # print(sd['module.p_input_fdim'])
                 p_fshape, p_tshape = sd['module.v.patch_embed.proj.weight'].shape[2], sd['module.v.patch_embed.proj.weight'].shape[3]
-                p_input_fdim, p_input_tdim = sd['module.p_input_fdim'].item(), sd['module.p_input_tdim'].item()
+                # p_input_fdim, p_input_tdim = sd['module.p_input_fdim'].item(), sd['module.p_input_tdim'].item()
+                # print('AAAAAAAAAAAAAAA', p_input_fdim)
+                # print('AAAAAAAAAAAAAAA', p_input_tdim)
+                p_input_fdim = input_fdim
+                p_input_tdim = input_tdim
             except:
                 raise  ValueError('The model loaded is not from a torch.nn.Dataparallel object. Wrap it with torch.nn.Dataparallel and try again.')
 
@@ -158,7 +166,7 @@ class ASTModel(nn.Module):
             audio_model = ASTModel(fstride=p_fshape, tstride=p_tshape, fshape=p_fshape, tshape=p_tshape,
                                    input_fdim=p_input_fdim, input_tdim=p_input_tdim, pretrain_stage=True, model_size=model_size)
             audio_model = torch.nn.DataParallel(audio_model)
-            audio_model.load_state_dict(sd, strict=False)
+            # audio_model.load_state_dict(sd, strict=False)
 
             self.v = audio_model.module.v
             self.original_embedding_dim = self.v.pos_embed.shape[2]
@@ -239,7 +247,7 @@ class ASTModel(nn.Module):
         return torch.tensor(mask_id)
 
     # using cluster for frame masking hurts the performance, so just use the naive random sampling
-    def gen_maskid_frame(self, sequence_len=512, mask_size=100):
+    def gen_maskid_frame(self, sequence_len=512, mask_size=20):
         mask_id = random.sample(range(0, sequence_len), mask_size)
         return torch.tensor(mask_id)
 
@@ -455,6 +463,65 @@ class ASTModel(nn.Module):
             return self.mpc(x, mask_patch=mask_patch, cluster=cluster, show_mask=True)
         else:
             raise Exception('Task unrecognized.')
+        
+
+
+def _no_grad_trunc_normal_(tensor, mean, std, a, b):
+    # Cut & paste from PyTorch official master until it's in a few official releases - RW
+    # Method based on https://people.sc.fsu.edu/~jburkardt/presentations/truncated_normal.pdf
+    def norm_cdf(x):
+        # Computes standard normal cumulative distribution function
+        return (1. + math.erf(x / math.sqrt(2.))) / 2.
+
+    if (mean < a - 2 * std) or (mean > b + 2 * std):
+        warnings.warn("mean is more than 2 std from [a, b] in nn.init.trunc_normal_. "
+                      "The distribution of values may be incorrect.",
+                      stacklevel=2)
+
+    with torch.no_grad():
+        # Values are generated by using a truncated uniform distribution and
+        # then using the inverse CDF for the normal distribution.
+        # Get upper and lower cdf values
+        l = norm_cdf((a - mean) / std)
+        u = norm_cdf((b - mean) / std)
+
+        # Uniformly fill tensor with values from [l, u], then translate to
+        # [2l-1, 2u-1].
+        tensor.uniform_(2 * l - 1, 2 * u - 1)
+
+        # Use inverse cdf transform for normal distribution to get truncated
+        # standard normal
+        tensor.erfinv_()
+
+        # Transform to proper mean, std
+        tensor.mul_(std * math.sqrt(2.))
+        tensor.add_(mean)
+
+        # Clamp to ensure it's in the proper range
+        tensor.clamp_(min=a, max=b)
+        return tensor
+
+
+def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
+    # type: (Tensor, float, float, float, float) -> Tensor
+    r"""Fills the input Tensor with values drawn from a truncated
+    normal distribution. The values are effectively drawn from the
+    normal distribution :math:`\mathcal{N}(\text{mean}, \text{std}^2)`
+    with values outside :math:`[a, b]` redrawn until they are within
+    the bounds. The method used for generating the random values works
+    best when :math:`a \leq \text{mean} \leq b`.
+    Args:
+        tensor: an n-dimensional `torch.Tensor`
+        mean: the mean of the normal distribution
+        std: the standard deviation of the normal distribution
+        a: the minimum cutoff value
+        b: the maximum cutoff value
+    Examples:
+        >>> w = torch.empty(3, 5)
+        >>> nn.init.trunc_normal_(w)
+    """
+    return _no_grad_trunc_normal_(tensor, mean, std, a, b)
+
 
 if __name__ == '__main__':
     # this is an example of how to use the SSAST model
@@ -511,7 +578,7 @@ if __name__ == '__main__':
     test_input = torch.zeros([10, input_tdim, 128])
     prediction = ast_mdl(test_input, task='ft_avgtok')
     # output should in shape [batch_size, label_dim]
-    print(prediction.shape)
+    # print(prediction.shape)
     # calculate the loss, do back propagate, etc
 
     # # (optional) do some probe test
