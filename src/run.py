@@ -12,6 +12,7 @@ import pickle
 import sys
 import time
 import torch
+import torch.nn as nn
 from torch.utils.data import WeightedRandomSampler
 basepath = os.path.dirname(os.path.dirname(sys.path[0]))
 sys.path.append(basepath)
@@ -86,6 +87,19 @@ parser.add_argument("--wa_start", type=int, default=16, help="which epoch to sta
 parser.add_argument("--wa_end", type=int, default=30, help="which epoch to end weight averaging in finetuning")
 parser.add_argument("--loss", type=str, default="BCE", help="the loss function for finetuning, depend on the task", choices=["BCE", "CE"])
 
+parser.add_argument("--advance_head", type=bool, default=False, help="if use fuse mlp head")
+parser.add_argument("--head_type", type=str, default='MGCrP', choices=["MGCrP", "GAP", "GCP", "fc"], help="type of mlp head architecture")
+parser.add_argument("--fusion_type", type=str, default='sum_fc', choices=["sum_fc", "concat", "aggre_all"], help="type of visual and cls tokens fusion")
+parser.add_argument("--num_heads", type=int, default=6, help="number of sub heads for GCP and MGCrP")
+parser.add_argument("--wr_dim", type=int, default=14, help="inner dim for MGCrP")
+parser.add_argument("--normalization_type", type=str, default='svPN', help="type of normalization for MGCrP")
+parser.add_argument("--normalization_alpha", type=float, default=0.5, help="alpha for MGCrP with svPN")
+parser.add_argument("--normalization_iterNum", type=int, default=1, help="iterNum for MGCrP with svPN")
+parser.add_argument("--normalization_svNum", type=int, default=1, help="svNum for MGCrP with svPN")
+parser.add_argument("--normalization_regular", type=str, default='svPN', help="dropout for MGCrP with svPN")
+parser.add_argument("--normalization_input_dim", type=int, default=14, help="some inner dim for MGCrP with svPN")
+parser.add_argument("--normalization_qkv_dim", type=int, default=14, help="some inner dim for GCP")
+
 args = parser.parse_args()
 
 # # dataset spectrogram mean and std, used to normalize the input
@@ -100,6 +114,26 @@ audio_conf = {'num_mel_bins': args.num_mel_bins, 'target_length': args.target_le
 val_audio_conf = {'num_mel_bins': args.num_mel_bins, 'target_length': args.target_length, 'freqm': 0, 'timem': 0, 'mixup': 0, 'dataset': args.dataset,
                   'mode': 'evaluation', 'mean': args.dataset_mean, 'std': args.dataset_std, 'noise': False}
 
+if args.advance_head:
+    advance_head_conf = dict(
+        type=args.head_type,
+        fusion_type=args.fusion_type,
+        args=dict(
+            num_heads=args.num_heads,
+            wr_dim=args.wr_dim,
+            normalization=dict(
+                type=args.normalization_type,
+                alpha=args.normalization_alpha,
+                iterNum=args.normalization_iterNum,
+                svNum=args.normalization_svNum,
+                regular=None if args.normalization_regular == 0 else nn.Dropout(args.normalization_regular),
+                input_dim=args.normalization_input_dim,
+                qkv_dim=args.normalization_qkv_dim
+            ),
+        ),
+    )
+else:
+    advance_head_conf = None
 # if use balanced sampling, note - self-supervised pretraining should not use balance sampling as it implicitly leverages the label information.
 print(args.bal)
 if args.bal == 'bal':
@@ -137,7 +171,7 @@ if 'pretrain' in args.task:
 else:
     audio_model = ASTModel(label_dim=args.n_class, fshape=args.fshape, tshape=args.tshape, fstride=args.fstride, tstride=args.tstride,
                        input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=False,
-                       load_pretrained_mdl_path=args.pretrained_mdl_path)
+                       load_pretrained_mdl_path=args.pretrained_mdl_path, representationConfig=advance_head_conf)
 
 if not isinstance(audio_model, torch.nn.DataParallel):
     audio_model = torch.nn.DataParallel(audio_model)
