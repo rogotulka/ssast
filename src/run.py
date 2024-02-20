@@ -16,7 +16,7 @@ from torch.utils.data import WeightedRandomSampler
 basepath = os.path.dirname(os.path.dirname(sys.path[0]))
 sys.path.append(basepath)
 import dataloader
-from models import ASTModel
+from models import ASTModel, ASTModelQuant
 import numpy as np
 from traintest import train, validate
 from traintest_mask import trainmask
@@ -66,6 +66,7 @@ parser.add_argument("--tshape", type=int, help="shape of patch on the time dimen
 parser.add_argument('--model_size', help='the size of AST models', type=str, default='base384')
 
 parser.add_argument("--task", type=str, default='ft_cls', help="pretraining or fine-tuning task", choices=["ft_avgtok", "ft_cls", "pretrain_mpc", "pretrain_mpg", "pretrain_joint"])
+parser.add_argument("--quant", action='store_true', help="use qantization during training")
 
 # pretraining augments
 #parser.add_argument('--pretrain_stage', help='True for self-supervised pretraining stage, False for fine-tuning stage', type=ast.literal_eval, default='False')
@@ -131,13 +132,28 @@ if 'pretrain' in args.task:
     else:
         print('The num_mel_bins {:d} and fshape {:d} are same, masking a typical time frame, not using cluster masking.'.format(args.num_mel_bins, args.fshape))
     # no label dimension needed as it is self-supervised, fshape=fstride and tshape=tstride
-    audio_model = ASTModel(fshape=args.fshape, tshape=args.tshape, fstride=args.fshape, tstride=args.tshape,
+    if not args.quant:
+        audio_model = ASTModel(fshape=args.fshape, tshape=args.tshape, fstride=args.fshape, tstride=args.tshape,
                        input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=True)
+    else:
+        audio_model =  ASTModelQuant(fshape=args.fshape, tshape=args.tshape, fstride=args.fshape, tstride=args.tshape,
+                                input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=True)
+
 # in the fine-tuning stage
 else:
-    audio_model = ASTModel(label_dim=args.n_class, fshape=args.fshape, tshape=args.tshape, fstride=args.fstride, tstride=args.tstride,
+    if not args.quant:
+        audio_model = ASTModel(label_dim=args.n_class, fshape=args.fshape, tshape=args.tshape, fstride=args.fstride, tstride=args.tstride,
                        input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=False,
                        load_pretrained_mdl_path=args.pretrained_mdl_path)
+    else:
+        audio_model = ASTModelQuant(label_dim=args.n_class, fshape=args.fshape, tshape=args.tshape, fstride=args.fstride, tstride=args.tstride,
+                               input_fdim=args.num_mel_bins, input_tdim=args.target_length, model_size=args.model_size, pretrain_stage=False,
+                               load_pretrained_mdl_path=args.pretrained_mdl_path)
+
+if args.quant:
+    audio_model.qconfig = torch.ao.quantization.get_default_qat_qconfig('x86')
+    audio_model = torch.ao.quantization.prepare_qat(audio_model.train())
+    print('Used quantization config')
 
 if not isinstance(audio_model, torch.nn.DataParallel):
     audio_model = torch.nn.DataParallel(audio_model)

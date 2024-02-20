@@ -10,23 +10,23 @@
 #SBATCH --job-name="ssast_pretrain"
 #SBATCH --output=./slurm_log/log_%j.txt
 
-set -x
+#set -x
 # comment this line if not running on sls cluster
-# . /data/sls/scratch/share-201907/slstoolchainrc
-source /venv/bin/activate
-export TORCH_HOME=../../pretrained_models
+#. /data/sls/scratch/share-201907/slstoolchainrc
+#source /data/sls/scratch/yuangong/sslast2/sslast2/bin/activate
+#export TORCH_HOME=../../pretrained_models
 mkdir exp
 mkdir slurm_log
 
 task=pretrain_joint
-mask_patch=20
+mask_patch=10
 
 # audioset and librispeech
-dataset=asli
-tr_data=./data/datafiles/speechcommand_train_data.json
-te_data=./data/datafiles/speechcommand_eval_data.json
-dataset_mean=-4.2677393
-dataset_std=4.5689974
+dataset=speechcommands
+tr_data=/home/korovski_y_nfs/ss_ast/ssast/data/datafiles/speechcommand_train_data.json
+te_data=/home/korovski_y_nfs/ss_ast/ssast/data/datafiles/speechcommand_valid_data.json
+dataset_mean=-6.845978
+dataset_std=5.5654526
 target_length=128
 num_mel_bins=128
 
@@ -48,15 +48,16 @@ freqm=0
 timem=0
 # no mixup training
 mixup=0
+label_dim=35
 
 exp_dir=./exp/mask01-${model_size}-f${fshape}-t${tshape}-b$batch_size-lr${lr}-m${mask_patch}-${task}-${dataset}
 
-CUDA_CACHE_DISABLE=0 python -W ignore src/run.py --dataset ${dataset} \
+CUDA_CACHE_DISABLE=1 python -W ignore src/run.py --dataset ${dataset} \
 --data-train ${tr_data} --data-val ${te_data} --exp-dir $exp_dir \
---label-csv ./data/speechcommands_class_labels_indices.csv \
+--label-csv /home/korovski_y_nfs/ss_ast/ssast/data/speechcommands_class_labels_indices.csv \
 --lr $lr --n-epochs ${epoch} --batch-size $batch_size --save_model False \
 --freqm $freqm --timem $timem --mixup ${mixup} --bal ${bal} \
 --tstride $tstride --fstride $fstride --fshape ${fshape} --tshape ${tshape} \
 --dataset_mean ${dataset_mean} --dataset_std ${dataset_std} --target_length ${target_length} --num_mel_bins ${num_mel_bins} \
 --model_size ${model_size} --mask_patch ${mask_patch} --n-print-steps 100 \
---task ${task} --lr_patience ${lr_patience} --epoch_iter 800
+--task ${task} --lr_patience ${lr_patience} --epoch_iter 800 --n_class $label_dim --quant

@@ -39,6 +39,7 @@ def get_sinusoid_encoding(n_position, d_hid):
 
     return torch.FloatTensor(sinusoid_table).unsqueeze(0)
 
+
 class ASTModel(nn.Module):
     def __init__(self, label_dim=527,
                  fshape=128, tshape=2, fstride=128, tstride=2,
@@ -252,6 +253,8 @@ class ASTModel(nn.Module):
         return torch.tensor(mask_id)
 
     def finetuningavgtok(self, x):
+        if self.quantized:
+            x = self.quant(x)
         B = x.shape[0]
         x = self.v.patch_embed(x)
         if self.cls_token_num == 2:
@@ -271,10 +274,14 @@ class ASTModel(nn.Module):
         # average output of all tokens except cls token(s)
         x = torch.mean(x[:, self.cls_token_num:, :], dim=1)
         x = self.mlp_head(x)
+        if self.quantized:
+            x = self.dequant(x)
         return x
 
     def finetuningcls(self, x):
         B = x.shape[0]
+        if self.quantized:
+            x = self.quant(x)
         x = self.v.patch_embed(x)
         if self.cls_token_num == 2:
             cls_tokens = self.v.cls_token.expand(B, -1, -1)
@@ -296,10 +303,14 @@ class ASTModel(nn.Module):
         else:
             x = x[:, 0]
         x = self.mlp_head(x)
+        if self.quantized:
+            x = self.dequant(x)
         return x
 
     # masked patch pretraining with discriminative objective
     def mpc(self, x, mask_patch, cluster, show_mask=False):
+        if self.quantized:
+            x = self.quant(x)
         input = self.unfold(x).transpose(1, 2)
         B = x.shape[0]
         # x in shape (batch_size, sequence_len, embedding dim)
@@ -390,12 +401,16 @@ class ASTModel(nn.Module):
             fold = torch.nn.Fold(output_size=([self.input_fdim, self.input_tdim]), kernel_size=(self.fshape, self.tshape), stride=(self.fstride, self.tstride))
             pred = fold(pred.transpose(1, 2))
             masked = fold(masked.transpose(1, 2))
+            if self.quantized:
+                pred = self.dequant(pred)
 
             return pred, masked
 
     # # masked patch pretraining with generative objective
     def mpg(self, input, mask_patch, cluster):
         B = input.shape[0]
+        if self.quantized:
+            input = self.quant(input)
         x = self.v.patch_embed(input)
         input = self.unfold(input).transpose(1, 2)
 
@@ -427,6 +442,8 @@ class ASTModel(nn.Module):
         for blk in self.v.blocks:
             x = blk(x)
         x = self.v.norm(x)
+        if self.quantized:
+            x = self.dequant(x)
 
         pred = torch.empty((B, mask_patch, self.fshape * self.tshape), device=x.device).float()  # e.g. size 12*100*256
         target = torch.empty((B, mask_patch, self.fshape * self.tshape), device=x.device).float() # e.g. size 12*100*256
@@ -588,3 +605,20 @@ if __name__ == '__main__':
     # pred, masked = ast_mdl(test_input, task='visualize_mask', mask_patch=100)
     # plt.imshow(masked[0,0])
     # plt.show()
+
+class ASTModelQuant(ASTModel):
+    def __init__(self, label_dim=527,
+                 fshape=128, tshape=2, fstride=128, tstride=2,
+                 input_fdim=128, input_tdim=1024, model_size='base',
+                 pretrain_stage=True, load_pretrained_mdl_path=None):
+
+        super(ASTModelQuant, self).__init__(label_dim=label_dim, fshape=fshape, tshape=tshape, fstride=fstride,
+                                       tstride=tstride, input_fdim=input_fdim, input_tdim=input_tdim,
+                                       model_size=model_size, pretrain_stage=pretrain_stage,
+                                       load_pretrained_mdl_path=load_pretrained_mdl_path)
+        self.quantized = True
+        self.quant = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
+
+
+
